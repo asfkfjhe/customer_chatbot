@@ -6,7 +6,7 @@ Run with: streamlit run src/app.py
 """
 
 import streamlit as st
-
+from rag_chain import get_bot_response
 
 # ──────────────────────────────────────────────
 # UI Components
@@ -52,27 +52,27 @@ def render_chat_history() -> None:
         render_message(message)
 
 
-def get_bot_response(query: str, top_k: int) -> tuple[str, list[str]]:
-    """
-    Generate a chatbot response for the given query.
+# def get_bot_response(query: str, top_k: int) -> tuple[str, list[str]]:
+#     """
+#     Generate a chatbot response for the given query.
 
-    TODO: Replace this placeholder with your RAG pipeline.
-    Your implementation should:
-      1. Retrieve relevant chunks from the vector store (use top_k)
-      2. Pass the retrieved context + query to the LLM
-      3. Return the answer and a list of source document titles
+#     TODO: Replace this placeholder with your RAG pipeline.
+#     Your implementation should:
+#       1. Retrieve relevant chunks from the vector store (use top_k)
+#       2. Pass the retrieved context + query to the LLM
+#       3. Return the answer and a list of source document titles
 
-    Example:
-        from rag_chain import get_rag_chain
-        chain = get_rag_chain(top_k=top_k)
-        result = chain.invoke({"question": query})
-        answer = result["answer"]
-        sources = [doc.metadata["source"] for doc in result["source_documents"]]
-        return answer, sources
-    """
-    answer = "⚠️ RAG pipeline not yet implemented. Connect your chain in `get_bot_response()`!"
-    sources = []
-    return answer, sources
+#     Example:
+#         from rag_chain import get_rag_chain
+#         chain = get_rag_chain(top_k=top_k)
+#         result = chain.invoke({"question": query})
+#         answer = result["answer"]
+#         sources = [doc.metadata["source"] for doc in result["source_documents"]]
+#         return answer, sources
+#     """
+#     answer = "⚠️ RAG pipeline not yet implemented. Connect your chain in `get_bot_response()`!"
+#     sources = []
+#     return answer, sources
 
 
 # ──────────────────────────────────────────────
@@ -101,15 +101,17 @@ def main():
     # Chat input
     if prompt := st.chat_input("Ask a question..."):
         # User message
-        st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
 
         # Bot response
-        answer, sources = get_bot_response(prompt, top_k=settings["top_k"])
+        answer, sources = get_bot_response(prompt, top_k=settings["top_k"], chat_history=st.session_state.messages)
 
         response = {"role": "assistant", "content": answer, "sources": sources}
         render_message(response)
+        
+        st.session_state.messages.append({"role": "user", "content": prompt})
+
         st.session_state.messages.append(response)
 
 
