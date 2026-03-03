@@ -6,7 +6,8 @@ Run with: streamlit run src/app.py
 """
 
 import streamlit as st
-from rag_chain import get_bot_response
+from rag_chain import get_bot_response , load_rag_components
+
 
 # ──────────────────────────────────────────────
 # UI Components
@@ -80,14 +81,24 @@ def render_chat_history() -> None:
 # ──────────────────────────────────────────────
 
 def main():
-    st.set_page_config(
-        page_title="Customer Service Chatbot",
-        page_icon="🚗",
-        layout="centered",
-    )
-
-    st.title("🚗 Customer Service Chatbot")
+    st.set_page_config( page_title="Customer Service Chatbot", page_icon="🚗", layout="centered", ) 
+    st.title("🚗 Customer Service Chatbot") 
     st.caption("Ask questions about vehicles, services, warranty, and more.")
+
+    @st.cache_resource
+    def load_resources():
+        return load_rag_components()
+
+    if "vector_db" not in st.session_state:
+        vector_db, llm = load_resources()
+        st.session_state.vector_db = vector_db
+        st.session_state.llm = llm
+        st.set_page_config(
+            page_title="Customer Service Chatbot",
+            page_icon="🚗",
+            layout="centered",
+        )
+
 
     # Sidebar
     settings = render_sidebar()
@@ -105,7 +116,14 @@ def main():
             st.markdown(prompt)
 
         # Bot response
-        answer, sources = get_bot_response(prompt, top_k=settings["top_k"], chat_history=st.session_state.messages)
+
+        answer, sources = get_bot_response(
+            query=prompt,
+            top_k=settings["top_k"],
+            chat_history=st.session_state.messages,
+            vector_db=st.session_state.vector_db,
+            llm=st.session_state.llm
+        )
 
         response = {"role": "assistant", "content": answer, "sources": sources}
         render_message(response)

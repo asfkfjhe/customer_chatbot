@@ -1,86 +1,111 @@
-
 from langchain_community.vectorstores import Chroma
 from langchain_community.embeddings import OllamaEmbeddings
 from langchain_community.chat_models import ChatOllama
-from langchain.messages import HumanMessage, SystemMessage
+from langchain.messages import HumanMessage, SystemMessage , AIMessage
+import time
+from functools import wraps
 
 DB_PATH = "vector_store/chroma_db"
 
-def get_bot_response(query: str, top_k: int, chat_history: list) -> tuple[str, list[str]]:
+
+
+def time_it(stage_name):
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            start = time.perf_counter()
+
+            result = func(*args, **kwargs)
+
+            end = time.perf_counter()
+            print(f"[{stage_name}] took {end - start:.4f} seconds")
+
+            return result
+        return wrapper
+    return decorator
+
+@time_it("loading embedding models and vector db")
+def load_rag_components():
+    """Load heavy components ONCE."""
+
+    embedding_model = OllamaEmbeddings(
+        model="mxbai-embed-large"
+    )
+
+    vector_db = Chroma(
+        persist_directory=DB_PATH,
+        embedding_function=embedding_model
+    )
+
+    llm = ChatOllama(
+        model="llama3:8b"
+        )
+
+    return vector_db, llm
+
+@time_it("bot response")
+def get_bot_response(query, top_k, chat_history, vector_db, llm):
+
+    retriever = vector_db.as_retriever(search_kwargs={"k": top_k})
+    docs = retriever.invoke(query)
+
+    if not docs:
+        return "I could not find relevant information in the knowledge base.", []
+
+    context = "\n\n".join([doc.page_content for doc in docs])
+
+    sources = list(set([
+        doc.metadata.get("source", "Unknown document")
+        for doc in docs
+    ]))
+
+    system_prompt = """
+        You are a professional BMW customer service assistant.
+
+        Decide how to respond.
+
+        If the question is related to:
+        - Vehicles
+        - Company services
+        - Warranty
+        - Maintenance
+        - Knowledge base documents
+
+        Then answer using the provided context.
+
+        If the question is unrelated to business knowledge,
+        respond with:
+
+        "I am sorry, but I can only help with vehicle and service related questions."
+
+        Rules:
+        - Do not hallucinate.
+        - If unsure, say you don't know.
+        - Be professional, helpful, and concise.
+        - Greet the user when starting a conversation.
     """
-    RAG pipeline using:
-    - Ollama embeddings
-    - ChromaDB vector store
-    - Ollama chat model
-    """
 
-    try:
-        # 1️⃣ Load embedding model
-        embedding_model = OllamaEmbeddings(
-            model="mxbai-embed-large"
-        )
+    messages = [SystemMessage(content=system_prompt)]
 
-        # 2️⃣ Load vector store
-        vector_db = Chroma(
-            persist_directory=DB_PATH,
-            embedding_function=embedding_model
-        )
+    for msg in chat_history[-4:]:
+        if msg["role"] == "user":
+            messages.append(HumanMessage(content=msg["content"]))
+        elif msg["role"] == "assistant":
+            messages.append(AIMessage(content=msg["content"]))
 
-        # 3️⃣ Retrieve relevant chunks
-        retriever = vector_db.as_retriever(
-            search_kwargs={"k": top_k}
-        )
+    messages.append(
+        HumanMessage(content=f"""
+Context:
+{context}
 
-        docs = retriever.invoke(query)
+Question:
+{query}
 
-        if not docs:
-            return "I could not find relevant information in the knowledge base.", []
-
-        # 4️⃣ Build context
-        context = "\n\n".join([doc.page_content for doc in docs])
-
-        # 5️⃣ Collect sources (document titles)
-        sources = list(set([
-            doc.metadata.get("source", "Unknown document")
-            for doc in docs
-        ]))
-
-        # 6️⃣ Initialize chat model
-        llm = ChatOllama(model="llama3")
-
-        # 7️⃣ System prompt (IMPORTANT FOR GRADING ⭐)
-        system_prompt = """
-You are a professional BMW customer service assistant.
-
-Rules:
-- Answer ONLY using the provided context.
-- If the answer is not in the context, say you don't know.
-- Be clear, professional, and helpful.
-- Do not hallucinate.
-"""
-
-        messages = [SystemMessage(content=system_prompt)]
-
-        for msg in chat_history:
-            if msg["role"]=="user":
-                messages.append(HumanMessage(content=msg["content"]))
-            elif msg["role"]=="assistant":
-                messages.append(SystemMessage(content=msg["content"]))
-
-        messages.append(
-            HumanMessage(content=f"""
-Context:{context}
-Question:{query}
 Answer:
-
 """)
-        )
+    )
+    
+    response = llm.invoke(messages)
+    print("answer generated")
 
-
-        # 8️⃣ Generate response
-        response = llm.invoke(messages)
-
-        return response.content, sources
-
-    except Exception as e:
-        return f"Error: {str(e)}", []
+    return response.content, sources
